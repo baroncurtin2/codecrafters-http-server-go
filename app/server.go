@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -24,6 +26,7 @@ const (
 	ContentEncodingHeader  = "Content-Encoding"
 	ContentTypeTextPlain   = "text/plain"
 	ContentTypeOctetStream = "application/octet-stream"
+	ContentEncodingGzip    = "gzip"
 	LogPrefix              = "[SERVER] "
 )
 
@@ -105,10 +108,23 @@ func handleConnection(conn net.Conn) {
 func handleEchoRequest(conn net.Conn, request *http.Request, useGzip bool) {
 	echoString := strings.TrimPrefix(request.URL.Path, "/echo/")
 	headers := createHeaders(ContentTypeTextPlain, len(echoString))
+
+	var body string
+
 	if useGzip {
-		headers[ContentEncodingHeader] = "gzip"
+		gzipData, err := gzipCompress([]byte(echoString))
+		if err != nil {
+			logError(fmt.Sprintf("Error compressing data: %v", err))
+			return
+		}
+		headers[ContentEncodingHeader] = ContentEncodingGzip
+		headers[ContentLengthHeader] = fmt.Sprintf("%d", len(gzipData))
+		body = string(gzipData)
+	} else {
+		headers[ContentLengthHeader] = fmt.Sprintf("%d", len(echoString))
+		body = echoString
 	}
-	sendResponse(conn, HTTPStatusOK, headers, echoString)
+	sendResponse(conn, HTTPStatusOK, headers, body)
 }
 
 func handleUserAgentRequest(conn net.Conn, request *http.Request) {
@@ -196,4 +212,17 @@ func supportsGzipEncoding(acceptEncoding string) bool {
 		}
 	}
 	return false
+}
+
+func gzipCompress(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+	_, err := gzipWriter.Write(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := gzipWriter.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
