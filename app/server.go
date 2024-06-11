@@ -17,6 +17,7 @@ import (
 const (
 	CRLF                   = "\r\n"
 	HTTPStatusOK           = "HTTP/1.1 200 OK"
+	HTTPStatusCreated      = "HTTP/1.1 201 Created"
 	HTTPStatusNotFound     = "HTTP/1.1 404 Not Found"
 	ContentTypeHeader      = "Content-Type"
 	ContentLengthHeader    = "Content-Length"
@@ -92,7 +93,7 @@ func handleConnection(conn net.Conn) {
 		sendResponse(conn, HTTPStatusOK, headers, userAgent)
 	case strings.HasPrefix(request.URL.Path, "/files/"):
 		filename := strings.TrimPrefix(request.URL.Path, "/files/")
-		handleFileRequest(conn, filename)
+		handleFileRequest(conn, request, filename)
 	default:
 		sendResponse(conn, HTTPStatusNotFound, nil, "")
 	}
@@ -120,18 +121,40 @@ func sendResponse(conn net.Conn, status string, headers map[string]string, body 
 	}
 }
 
-func handleFileRequest(conn net.Conn, filename string) {
+func handleFileRequest(conn net.Conn, request *http.Request, filename string) {
 	filePath := filepath.Join(fileDirectory, filename)
-	fileData, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			sendResponse(conn, HTTPStatusNotFound, nil, "")
-		} else {
-			fmt.Printf(LogPrefix+"Error reading file: %v\n", err)
-		}
-		return
-	}
 
-	headers := createHeaders(ContentTypeOctetStream, len(fileData))
-	sendResponse(conn, HTTPStatusOK, headers, string(fileData))
+	switch request.Method {
+	case http.MethodGet:
+		fileData, err := ioutil.ReadFile(filePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				sendResponse(conn, HTTPStatusNotFound, nil, "")
+			} else {
+				fmt.Printf(LogPrefix+"Error reading file: %v\n", err)
+			}
+			return
+		}
+
+		headers := createHeaders(ContentTypeOctetStream, len(fileData))
+		sendResponse(conn, HTTPStatusOK, headers, string(fileData))
+
+	case http.MethodPost:
+		body, err := ioutil.ReadAll(request.Body)
+		if err != nil {
+			fmt.Printf(LogPrefix+"Error reading request body: %v\n", err)
+			return
+		}
+
+		err = ioutil.WriteFile(filePath, body, 0644)
+		if err != nil {
+			fmt.Printf(LogPrefix+"Error writing file: %v\n", err)
+			return
+		}
+
+		sendResponse(conn, HTTPStatusCreated, nil, "")
+
+	default:
+		sendResponse(conn, HTTPStatusNotFound, nil, "")
+	}
 }
