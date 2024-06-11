@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	CRLF                 string = "\r\n"
-	HTTPStatusOK         string = "HTTP/1.1 200 OK"
-	HTTPStatusNotFound   string = "HTTP/1.1 404 Not Found"
-	ContentTypeTextPlain string = "Content-Type: text/plain"
+	CRLF               = "\r\n"
+	HTTPStatusOK       = "HTTP/1.1 200 OK"
+	HTTPStatusNotFound = "HTTP/1.1 404 Not Found"
+	ContentType        = "Content-Type"
 )
 
 func main() {
@@ -21,68 +21,71 @@ func main() {
 
 	listener, err := net.Listen("tcp", "localhost:4221")
 	if err != nil {
-		fmt.Println("Failed to bind to port 4221:", err.Error())
+		fmt.Printf("Failed to bind to port 4221: %v\n", err)
 		os.Exit(1)
 	}
-
 	defer listener.Close()
+
 	fmt.Println("Listening on localhost:4221")
 
-	// accept and handle incoming connections
+	// Accept and handle incoming connections
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection:", err)
+			fmt.Printf("Error accepting connection: %v\n", err)
 			continue
 		}
-
-		go handleConnection(conn) // handle each connection concurrently
+		go handleConnection(conn) // Handle each connection concurrently
 	}
 }
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// read the http request from the connection
+	// Read the HTTP request from the connection
 	request, err := http.ReadRequest(bufio.NewReader(conn))
 	if err != nil {
-		fmt.Println("Error reading request:", err)
+		fmt.Printf("Error reading request: %v\n", err)
 		return
 	}
 
-	// log the request method and url path
+	// Log the request method and URL path
 	fmt.Printf("Request: %s %s\n", request.Method, request.URL.Path)
 
-	// respond based on the requested URL path
-	if request.URL.Path == "/" {
-		sendResponse(conn, HTTPStatusOK)
-	} else if strings.HasPrefix(request.URL.Path, "/echo/") {
+	// Respond based on the requested URL path
+	switch {
+	case request.URL.Path == "/":
+		sendResponse(conn, HTTPStatusOK, nil, "")
+	case strings.HasPrefix(request.URL.Path, "/echo/"):
 		echoString := strings.TrimPrefix(request.URL.Path, "/echo/")
-		sendEchoResponse(conn, echoString)
-	} else {
-		sendNotFoundResponse(conn)
+		headers := map[string]string{
+			ContentType:      "text/plain",
+			"Content-Length": fmt.Sprintf("%d", len(echoString)),
+		}
+		sendResponse(conn, HTTPStatusOK, headers, echoString)
+	case request.URL.Path == "/user-agent":
+		userAgent := request.Header.Get("User-Agent")
+		headers := map[string]string{
+			ContentType:      "text/plain",
+			"Content-Length": fmt.Sprintf("%d", len(userAgent)),
+		}
+		sendResponse(conn, HTTPStatusOK, headers, userAgent)
+	default:
+		sendResponse(conn, HTTPStatusNotFound, nil, "")
 	}
 }
 
-func sendEchoResponse(conn net.Conn, echoString string) {
-	headers := fmt.Sprintf("%s%s%s %s%s: %d%s%s", HTTPStatusOK, CRLF, ContentTypeTextPlain, CRLF, "Content-Length", len(echoString), CRLF, CRLF)
+func sendResponse(conn net.Conn, status string, headers map[string]string, body string) {
+	response := status + CRLF
+	if headers != nil {
+		for key, value := range headers {
+			response += fmt.Sprintf("%s: %s%s", key, value, CRLF)
+		}
+	}
+	response += CRLF + body
 
-	response := headers + echoString
 	_, err := conn.Write([]byte(response))
 	if err != nil {
-		fmt.Println("Error writing response:", err)
+		fmt.Printf("Error writing response: %v\n", err)
 	}
-}
-
-func sendResponse(conn net.Conn, status string) {
-	response := fmt.Sprintf("%s%s%s", status, CRLF, CRLF)
-
-	_, err := conn.Write([]byte(response))
-	if err != nil {
-		fmt.Println("Error writing response:", err)
-	}
-}
-
-func sendNotFoundResponse(conn net.Conn) {
-	sendResponse(conn, HTTPStatusNotFound)
 }
