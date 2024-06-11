@@ -21,6 +21,7 @@ const (
 	HTTPStatusNotFound     = "HTTP/1.1 404 Not Found"
 	ContentTypeHeader      = "Content-Type"
 	ContentLengthHeader    = "Content-Length"
+	ContentEncodingHeader  = "Content-Encoding"
 	ContentTypeTextPlain   = "text/plain"
 	ContentTypeOctetStream = "application/octet-stream"
 	LogPrefix              = "[SERVER] "
@@ -79,6 +80,10 @@ func handleConnection(conn net.Conn) {
 	// Log the request method and URL path
 	fmt.Printf(LogPrefix+"Request: %s %s\n", request.Method, request.URL.Path)
 
+	// determine enconding requested by the client
+	acceptEncoding := request.Header.Get("Accept-Encoding")
+	useGzip := strings.Contains(strings.ToLower(acceptEncoding), "gzip")
+
 	// Respond based on the requested URL path
 	switch {
 	case request.URL.Path == "/":
@@ -86,6 +91,10 @@ func handleConnection(conn net.Conn) {
 	case strings.HasPrefix(request.URL.Path, "/echo/"):
 		echoString := strings.TrimPrefix(request.URL.Path, "/echo/")
 		headers := createHeaders(ContentTypeTextPlain, len(echoString))
+		if useGzip {
+			headers[ContentEncodingHeader] = "gzip"
+		}
+
 		sendResponse(conn, HTTPStatusOK, headers, echoString)
 	case request.URL.Path == "/user-agent":
 		userAgent := request.Header.Get("User-Agent")
